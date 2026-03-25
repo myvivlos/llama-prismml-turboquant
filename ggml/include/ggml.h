@@ -429,9 +429,12 @@ extern "C" {
         GGML_TYPE_MXFP4   = 39, // MXFP4 (1 block)
         GGML_TYPE_NVFP4   = 40, // NVFP4 (4 blocks, E4M3 scale)
         GGML_TYPE_Q1_0    = 41,
+        GGML_TYPE_Q1_0    = 41,
         GGML_TYPE_Q2_0    = 42,
         // Prism-private Q2_0 at group size 128 (upstream Q2_0 is group 64). High id so it
         // slots above upstream types; type_traits is sized to COUNT (143) with 43..141 unused.
+        GGML_TYPE_TURBO3_0 = 43, // TurboQuant 3-bit KV cache: 2-bit PolarQuant + 1-bit QJL
+        GGML_TYPE_TURBO4_0 = 44, // TurboQuant 4-bit KV cache: 3-bit PolarQuant + 1-bit QJL
         GGML_TYPE_PQ2_0 = 142,
         GGML_TYPE_PTQ1_0 = 143, // Prism-private ternary, group 128
         GGML_TYPE_COUNT   = 144,
