@@ -44,8 +44,14 @@ static common_speculative_output_limits server_output_limits(const common_params
         return { params.n_batch, 1 };
     }
 
+    // Account for draft modes enabled by convenience flags before their types are added.
+    uint32_t n_max = (uint32_t) common_speculative_n_max(&params.speculative);
+    if (params.speculative.draft.dflash || params.speculative.draft.eagle3) {
+        n_max = std::max(n_max, (uint32_t) std::max(0, params.speculative.draft.n_max));
+    }
+
     auto result = common_speculative_get_output_limits(
-            params.n_batch, params.n_parallel, common_speculative_n_max(&params.speculative));
+            params.n_batch, params.n_parallel, (int32_t) n_max);
 
     result.total   = std::max<int32_t>(1, result.total);
     result.per_seq = std::max<int32_t>(1, result.per_seq);
@@ -1183,12 +1189,29 @@ private:
             slots.emplace_back();
         }
 
-        // try speculative decoding
-        if (ctx_tgt_seq_rm_type != COMMON_CONTEXT_SEQ_RM_TYPE_NO) {
-            try {
-                spec.reset(common_speculative_init(params_base.speculative, params_base.n_parallel));
-            } catch (const std::exception & e) {
-                SRV_ERR("failed to initialize speculative decoding context: %s\n", e.what());
+        // Initialize speculative decoding only when a type or convenience flag is set.
+        const bool is_speculative_enabled =
+            params_base.speculative.draft.dflash ||
+            params_base.speculative.draft.eagle3 ||
+            std::any_of(
+                params_base.speculative.types.begin(),
+                params_base.speculative.types.end(),
+                [](auto t) { return t != COMMON_SPECULATIVE_TYPE_NONE; });
+        if (is_speculative_enabled) {
+            if (ctx_tgt_seq_rm_type == COMMON_CONTEXT_SEQ_RM_TYPE_NO) {
+                SRV_WRN("%s", "speculative decoding not supported by this context\n");
+            }
+
+            if (ctx_tgt_seq_rm_type == COMMON_CONTEXT_SEQ_RM_TYPE_FULL) {
+                SRV_TRC("%s", "speculative decoding will use checkpoints\n");
+            }
+
+            if (ctx_tgt_seq_rm_type != COMMON_CONTEXT_SEQ_RM_TYPE_NO) {
+                try {
+                    spec.reset(common_speculative_init(params_base.speculative, params_base.n_parallel));
+                } catch (const std::exception & e) {
+                    SRV_ERR("failed to initialize speculative decoding context: %s\n", e.what());
+                }
             }
         }
 
