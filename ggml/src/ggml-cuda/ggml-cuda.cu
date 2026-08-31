@@ -720,6 +720,9 @@ ggml_backend_cuda_context::~ggml_backend_cuda_context() {
         pool(r.dev).free(r.ptr, r.cap);
     }
     q8_cache.retired.clear();
+
+    // Return the pre-rotation cache buffer before the pools are destroyed
+    // (the legacy pool asserts on outstanding allocations at teardown).
     if (tq_rot_cache.ptr != nullptr) {
         pool(tq_rot_cache.dev).free(tq_rot_cache.ptr, tq_rot_cache.cap);
         tq_rot_cache.ptr = nullptr;
