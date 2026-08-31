@@ -1470,6 +1470,53 @@ struct ggml_backend_cuda_context {
 
     int curr_stream_no = 0;
 
+    // [TAG_FA_F16_CUDA_GRAPHS] Set once per compute call in ggml_backend_cuda_graph_compute: true
+    // when the current cgraph is graph-enabled AND graph-compatible (i.e. it will be captured).
+    // On HIP the flash-attention launcher reads this to place its f16 KV-dequant temp buffers in the
+    // capture-safe memory pool instead of raw cudaMalloc/cudaFree, which are illegal while a CUDA
+    // graph is being captured. Left false for graph-incompatible graphs so those keep the raw
+    // release-after-use path (avoids the legacy pool retaining the temp; ref llama.cpp #22107).
+    bool fa_f16_use_pool = false;
+
+    // Per-graph-eval shared-quantize cache for the mmvq path. Several matvecs in one decode
+    // layer consume the same normed activation (Q/V/K read attn_norm; the router, fused
+    // gate/up and shared-expert gate read attn_post_norm), and each used to re-quantize it to
+    // q8_1 — ~60% of all quantize launches were duplicates. The most recent quantization is
+    // kept in a persistent pool buffer and reused when the same src1 tensor is seen again in
+    // the same graph eval with identical layout. Stream ordering makes overwrite safe (all
+    // consumers of the previous entry are already enqueued before the next quantize runs),
+    // and the buffer only grows on shape changes, which force a CUDA-graph re-capture anyway.
+    struct {
+        char *              ptr  = nullptr;      // pool memory, grow-only
+        size_t              cap  = 0;            // actual allocated size
+        int                 dev  = -1;           // device the buffer was allocated on
+        const ggml_tensor * src1 = nullptr;      // key: tensor identity ...
+        const void *        data = nullptr;      // ... and its data pointer
+        uint64_t            epoch = 0;           // valid only within this graph eval
+        size_t              size = 0;            // quantized bytes
+        int64_t             ne10_padded = 0;     // layout keys
+        ggml_type           type = GGML_TYPE_COUNT;
+        struct retired_buf { char * ptr; size_t cap; int dev; };
+        std::vector<retired_buf> retired;        // outgrown buffers, freed at teardown (captured graphs may still use them)
+    } q8_cache;
+
+    // Same idea for the TQ activation pre-rotation (forward block WHT + q8_1 quantize): the MoE
+    // gate and up projections consume the same normed activation, so the rotation ran twice per
+    // layer. Keyed by tensor identity, data pointer, size and graph-eval epoch; main-stream only.
+    struct {
+        char *              ptr  = nullptr;
+        size_t              cap  = 0;
+        int                 dev  = -1;
+        const ggml_tensor * src1 = nullptr;
+        const void *        data = nullptr;
+        uint64_t            epoch = 0;
+        size_t              size = 0;
+        struct retired_buf { char * ptr; size_t cap; int dev; };
+        std::vector<retired_buf> retired;        // outgrown buffers, freed at teardown (captured graphs may still use them)
+    } tq_rot_cache;
+
+    uint64_t graph_epoch = 1;
+
 #ifdef USE_CUDA_GRAPH
     // Map from first_node_ptr to cuda_graph - allows multiple graphs per context
     // when the computation is split across CPU/GPU (e.g., with --n-cpu-moe)
