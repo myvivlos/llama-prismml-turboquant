@@ -141,7 +141,7 @@ int ggml_cuda_get_device() {
     return id;
 }
 
-static cudaError_t ggml_cuda_device_malloc(void ** ptr, size_t size, int device) {
+cudaError_t ggml_cuda_device_malloc(void ** ptr, size_t size, int device) {
     ggml_cuda_set_device(device);
     cudaError_t err;
     if (getenv("GGML_CUDA_ENABLE_UNIFIED_MEMORY") != nullptr) {
@@ -710,26 +710,29 @@ ggml_backend_cuda_context::~ggml_backend_cuda_context() {
     std::unique_lock<std::mutex> lock(ggml_cuda_lock);
     ggml_cuda_lock_cv.wait(lock, []{ return ggml_cuda_lock_counter.load(std::memory_order_relaxed) == 0; });
 
-    // Return the cache buffers before the pools are destroyed
-    // (the legacy pool asserts on outstanding allocations at teardown).
-    if (q8_cache.ptr != nullptr) {
-        pool(q8_cache.dev).free(q8_cache.ptr, q8_cache.cap);
-        q8_cache.ptr = nullptr;
-    }
+    // The cache buffers are raw device allocations, not pool memory: the VMM pool frees strict
+    // LIFO and these are taken while transient pool allocations sit below them, so free order
+    // here does not matter.
+    auto free_buf = [](char * ptr, int dev) {
+        if (ptr != nullptr) {
+            ggml_cuda_set_device(dev);
+            CUDA_CHECK(cudaFree(ptr));
+        }
+    };
+
+    free_buf(q8_cache.ptr, q8_cache.dev);
     for (const auto & r : q8_cache.retired) {
-        pool(r.dev).free(r.ptr, r.cap);
+        free_buf(r.ptr, r.dev);
     }
+    free_buf(tq_rot_cache.ptr, tq_rot_cache.dev);
+    for (const auto & r : tq_rot_cache.retired) {
+        free_buf(r.ptr, r.dev);
+    }
+
+    q8_cache.ptr = nullptr;
     q8_cache.retired.clear();
 
-    // Return the pre-rotation cache buffers before the pools are destroyed
-    // (the legacy pool asserts on outstanding allocations at teardown).
-    if (tq_rot_cache.ptr != nullptr) {
-        pool(tq_rot_cache.dev).free(tq_rot_cache.ptr, tq_rot_cache.cap);
-        tq_rot_cache.ptr = nullptr;
-    }
-    for (const auto & r : tq_rot_cache.retired) {
-        pool(r.dev).free(r.ptr, r.cap);
-    }
+    tq_rot_cache.ptr = nullptr;
     tq_rot_cache.retired.clear();
 
     if (copy_event != nullptr) {
