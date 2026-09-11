@@ -139,39 +139,6 @@ static __global__ void tq_build_expert_table(
     }
 }
 
-// Copy the experts this call routes to into VRAM slots and point the address table at the copies,
-// so the matmul only ever reads VRAM. This is what makes leaving the expert stack in host memory
-// affordable: measured on gfx90a, a coalesced copy reaches 27.6 GB/s against the 28.6 GB/s of a
-// bulk transfer, while the matmul dereferencing the same host memory in place manages only about
-// 2.7 GB/s. It has to be a kernel rather than a host-issued copy because a captured graph fixes
-// its addresses at capture time and the routing is not known until the graph runs; this reads the
-// routing itself. Decode only for now, and no reuse between calls: every routed expert is copied
-// on every call, which is the worst case the residency policy will improve on.
-static __global__ void tq_page_in_experts(
-        const char    * __restrict__ base,
-        const int64_t                nb_expert,
-        const int32_t * __restrict__ ids,
-        char          * __restrict__ slab,
-        const void   ** __restrict__ table,
-        const int64_t                n_vec) {
-    const int slot   = blockIdx.y;
-    const int expert = ids[slot];
-
-    const uint4 * __restrict__ src = (const uint4 *) (base + (int64_t) expert * nb_expert);
-    uint4       * __restrict__ dst = (uint4       *) (slab + (int64_t) slot   * nb_expert);
-
-    for (int64_t i = (int64_t) blockIdx.x * blockDim.x + threadIdx.x; i < n_vec;
-         i += (int64_t) gridDim.x * blockDim.x) {
-        dst[i] = src[i];
-    }
-
-    // safe to publish from any block: the matmul is a separate launch and cannot start until this
-    // kernel has fully retired
-    if (blockIdx.x == 0 && threadIdx.x == 0) {
-        table[expert] = dst;
-    }
-}
-
 // Direct-mapped residency: expert e lives in slot e % n_slots, so deciding whether it is resident
 // is one comparison rather than a search. The first attempt used a true LRU with a scan over the
 // slots, which measured slower than not caching at all: a single thread walking device memory with
@@ -245,7 +212,12 @@ static __global__ void tq_cache_award(
     }
 }
 
-// Copy only the experts the plan marked as missing.
+// Copy only the experts the plan marked as missing, so the matmul reads VRAM rather than host
+// memory. This is what makes leaving the expert stack in host memory affordable: measured on
+// gfx90a, a coalesced copy reaches 27.6 GB/s against the 28.6 GB/s of a bulk transfer, while the
+// matmul dereferencing the same host memory in place manages only about 2.7 GB/s. It has to be a
+// kernel rather than a host-issued copy because a captured graph fixes its addresses at capture
+// time and the routing is not known until the graph runs; this reads the routing itself.
 static __global__ void tq_page_in_misses(
         const char    * __restrict__ base,
         const int64_t                nb_expert,
@@ -315,6 +287,11 @@ ggml_backend_cuda_context::moe_expert_slab * ggml_backend_cuda_context::moe_expe
         const bool in_host = err == hipSuccess &&
                              (attr.type == hipMemoryTypeHost || attr.type == hipMemoryTypeUnregistered);
         (void) hipGetLastError();
+#elif defined(GGML_USE_MUSA)
+        // MUSA does not expose the pointer-attribute query. Paging is only worth anything when the
+        // expert stack is in host memory, and that query is how we establish it, so stay off there
+        // rather than guess.
+        const bool in_host = false;
 #else
         cudaPointerAttributes attr = {};
         const cudaError_t err = cudaPointerGetAttributes(&attr, src0->data);
@@ -1287,7 +1264,6 @@ void ggml_cuda_mul_mat_id_tq(ggml_backend_cuda_context & ctx,
     // slot or at mapped host memory for an expert that is not resident, without the kernels
     // needing to know. Opt-in while this is being brought up.
     static const bool tq_use_expert_table = getenv("GGML_MOE_EXPERT_TABLE") != nullptr;
-    const int n_expert_all = (int) ne02;
     const void ** expert_tab = tq_use_expert_table
             ? ctx.moe_expert_table_get(src0, nb_expert, stream)
             : nullptr;
