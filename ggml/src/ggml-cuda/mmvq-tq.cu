@@ -288,9 +288,8 @@ ggml_backend_cuda_context::moe_expert_slab * ggml_backend_cuda_context::moe_expe
                              (attr.type == hipMemoryTypeHost || attr.type == hipMemoryTypeUnregistered);
         (void) hipGetLastError();
 #elif defined(GGML_USE_MUSA)
-        // MUSA does not expose the pointer-attribute query. Paging is only worth anything when the
-        // expert stack is in host memory, and that query is how we establish it, so stay off there
-        // rather than guess.
+        // No pointer-attribute query on MUSA; see the note at the paging gate below. This branch
+        // exists so the file compiles there, and the gate is what actually keeps the feature off.
         const bool in_host = false;
 #else
         cudaPointerAttributes attr = {};
@@ -1270,7 +1269,18 @@ void ggml_cuda_mul_mat_id_tq(ggml_backend_cuda_context & ctx,
 
     // Expert paging, off unless asked for. Requires the address table, since paging works by
     // repointing table entries at the slots rather than by moving the tensor.
+#if defined(GGML_USE_MUSA)
+    // Expert paging is off on MUSA, and by omission rather than by measurement. It needs to know
+    // the expert stack is in host memory, which is what the pointer-attribute query establishes,
+    // and MUSA exposes no equivalent: upstream carries no mapping for it and no reference to a
+    // musaPointerGetAttributes, so there is no spelling to copy and a guessed one would only break
+    // the build again on hardware that cannot be tested here. To turn it on, add cudaPointerAttributes,
+    // cudaPointerGetAttributes, cudaMemoryTypeHost and cudaMemoryTypeUnregistered to
+    // vendors/musa.h and delete this block along with the matching one in moe_expert_slab_get.
+    static const bool page_in_on = false;
+#else
     static const bool page_in_on = getenv("GGML_MOE_PAGE_IN") != nullptr;
+#endif
     if (page_in_on && expert_tab && n_tokens == 1 && nb_expert % (int64_t) sizeof(uint4) == 0) {
         const int n_expert_total = (int) src0->ne[2];
         auto * cache = ctx.moe_expert_slab_get(src0, nb_expert, n_expert_total, n_expert_used, stream);
