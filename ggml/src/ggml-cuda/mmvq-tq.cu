@@ -1683,9 +1683,9 @@ void ggml_cuda_mul_mat_tq4_1s_cublas(ggml_backend_cuda_context & ctx,
     const float beta  = 0.0f;
     const int64_t ldc = dst->ne[0];  // M
 
-    CUBLAS_CHECK(cublasSetStream(ctx.cublas_handle(id), stream));
+    CUBLAS_CHECK(cublasSetStream(ctx.cublas_handle(), stream));
     CUBLAS_CHECK(
-        cublasGemmEx(ctx.cublas_handle(id), CUBLAS_OP_T, CUBLAS_OP_N,
+        cublasGemmEx(ctx.cublas_handle(), CUBLAS_OP_T, CUBLAS_OP_N,
                 ne01, ne11, ne00,
                 &alpha, src0_f16.get(), CUDA_R_16F, ne00,
                         src1_f16.get(), CUDA_R_16F, ne10,
@@ -1715,7 +1715,7 @@ void ggml_cuda_mul_mat_tq4_1s_mmq(ggml_backend_cuda_context & ctx, const ggml_te
     ggml_tensor src1_rot = *src1;
     src1_rot.data = act_buf.get();
 
-    ggml_cuda_mul_mat_q(ctx, src0, &src1_rot, nullptr, dst, false);
+    ggml_cuda_mul_mat_q(ctx, src0, &src1_rot, nullptr, dst);
 }
 
 // Phase 2 (MoE): native MFMA-i8 MMQ prefill for TQ4_1S experts (gfx90a). Same trick as the dense
@@ -1742,5 +1742,5 @@ void ggml_cuda_mul_mat_id_tq4_1s_mmq(ggml_backend_cuda_context & ctx, const ggml
     ggml_tensor src1_rot = *src1;
     src1_rot.data = act_buf.get();
 
-    ggml_cuda_mul_mat_q(ctx, src0, &src1_rot, ids, dst, false);
+    ggml_cuda_mul_mat_q(ctx, src0, &src1_rot, ids, dst);
 }

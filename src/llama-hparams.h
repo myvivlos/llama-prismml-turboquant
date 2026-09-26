@@ -490,7 +490,6 @@ struct llama_hparams {
     bool     eagle3_norm_before_residual  = false;
 
     // DFlash draft model
-    uint32_t dflash_block_size              = 16;
     uint32_t dflash_mask_token_id           = 0;
 
 

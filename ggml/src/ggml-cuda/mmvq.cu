@@ -1444,7 +1444,7 @@ void ggml_cuda_mul_mat_vec_q(
     auto & qc = ctx.q8_cache;
     static const bool q8_cache_disabled = getenv("GGML_CUDA_Q8CACHE") != nullptr && atoi(getenv("GGML_CUDA_Q8CACHE")) == 0;
     // Main stream only: a sibling stream could consume the buffer with no cross-stream ordering.
-    const bool q8_cacheable = !q8_cache_disabled && !convrot && ids == nullptr && q8_bytes <= (1u << 20) &&
+    const bool q8_cacheable = !q8_cache_disabled && ids == nullptr && q8_bytes <= (1u << 20) &&
                               ctx.curr_stream_no == 0;
     const bool q8_hit = q8_cacheable && qc.epoch == ctx.graph_epoch && qc.src1 == src1 &&
                         qc.data == src1->data && qc.size == q8_bytes &&

@@ -1488,6 +1488,10 @@ struct ggml_backend_cuda_context {
     // release-after-use path (avoids the legacy pool retaining the temp; ref llama.cpp #22107).
     bool fa_f16_use_pool = false;
 
+    // Buffers retired from a persistent cache when it outgrows them. Kept until teardown because
+    // captured CUDA graphs may still reference them.
+    struct retired_buf { char * ptr; size_t cap; int dev; };
+
     // Per-graph-eval shared-quantize cache for the mmvq path. Several matvecs in one decode
     // layer consume the same normed activation (Q/V/K read attn_norm; the router, fused
     // gate/up and shared-expert gate read attn_post_norm), and each used to re-quantize it to

@@ -161,14 +161,6 @@ static const llm_fused_op_probe llm_fused_op_dsv4_hc_post_probe = {
     /*.n_tokens_per_seq =*/ 1,
 };
 
-static llm_graph_type ctx_type_to_graph_type(llama_context_type ctx_type) {
-    switch (ctx_type) {
-        case LLAMA_CONTEXT_TYPE_DEFAULT: return LLM_GRAPH_TYPE_DEFAULT;
-        case LLAMA_CONTEXT_TYPE_MTP    : return LLM_GRAPH_TYPE_DECODER_MTP;
-    }
-    throw std::runtime_error("Unsupported ctx type");
-}
-
 llama_context::llama_context(
         const llama_model & model,
               llama_context_params params) :

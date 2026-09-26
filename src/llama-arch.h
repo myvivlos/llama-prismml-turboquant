@@ -440,7 +440,6 @@ enum llm_kv {
 
     // DFlash
     LLM_KV_DFLASH_TARGET_LAYER_IDS,
-    LLM_KV_DFLASH_BLOCK_SIZE,
     LLM_KV_DFLASH_MASK_TOKEN_ID,
 
 };
