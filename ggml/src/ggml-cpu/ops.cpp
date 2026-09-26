@@ -19,7 +19,15 @@ extern "C" {
 // the two happen to unify is a property of the platform's symbol resolution
 // (ELF interposition may merge them; two-level-namespace and DLL targets will
 // not), which made the group-size propagation silently link-order dependent.
+#if defined(_WIN32) && !defined(__MINGW32__)
+// On MSVC, GGML_API already expands to `__declspec(...) extern`.
+GGML_API int turbo3_cpu_wht_group_size;
+#elif defined(GGML_SHARED)
+// On ELF shared builds, add `extern` so this stays a declaration.
 GGML_API extern int turbo3_cpu_wht_group_size;
+#else
+GGML_API int turbo3_cpu_wht_group_size;
+#endif
 }
 
 // ggml_compute_forward_dup
